@@ -1,0 +1,15 @@
+conda==4.9.2
+conda-build==3.21.4
+pandas==1.3.2
+torch==1.8.1
+pytorch-lightning==1.6.3
+torchmetrics==0.8.2
+transformers==4.19.2
+colorama==0.4.4
+dill==0.3.4
+omegaconf==2.2.1
+p-tqdm==1.3.3
+Q-snippets-Qing25==0.0.7
+tensorboard==2.6.0
+
+
