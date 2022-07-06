@@ -38,6 +38,7 @@ class Seq2seqGeneration(pl.LightningModule):
 
     def forward(self, batch):
         def _custom_forward(batch):
+            """ T5 based model do NOT use this """
             if batch.target_ids is not None:
                 target_ids = batch.target_ids[:, :-1].contiguous()
                 lm_labels = batch.target_ids[:, 1:].clone()
@@ -59,6 +60,7 @@ class Seq2seqGeneration(pl.LightningModule):
             return self.model(batch.input_ids, attention_mask=batch.attention_mask, labels=batch.target_ids)
 
         return _default_forward(batch)
+        # return _custom_forward(batch)
 
     def training_step(self, batch, batch_idx):
         output = self(batch)
@@ -175,9 +177,9 @@ def train_model(config):
     dirname = os.path.join(CUR_DIR, "./lightning_logs/", config.version)
     ckpt_callback = ModelCheckpoint(
         dirpath=dirname,
-        filename="{epoch}_{train_loss:.4f}",   # 模型保存名称， epoch信息以及验证集分数
-        monitor='train_loss',                                     
-        mode='min',
+        filename="{epoch}_{train_loss:.4f}_{val_bleu:.4f}",   # 模型保存名称， epoch信息以及验证集分数
+        monitor='val_bleu',                                     
+        mode='max',
         save_top_k=3,                                          
         verbose=True,
     )
@@ -191,7 +193,8 @@ def train_model(config):
         max_epochs=config.max_epochs,
         callbacks=[ckpt_callback, es],
         accelerator="gpu", 
-        devices=1
+        devices=1,
+        # resume_from_checkpoint="/home/qing/repos/demo/conditional_generation/lightning_logs/2rd/epoch=1_train_loss=2.0390_val_bleu=0.0197.ckpt"
     )
     # dm.setup(stage='fit')
     trainer.fit(model, dm)
