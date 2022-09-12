@@ -12,7 +12,7 @@ PROJ_DIR = os.path.abspath("..")
 print(f"proj_dir is: {PROJ_DIR}")
 
  
-from frame import train_model, predict_ckpt
+from frame import raw_generate, train_model, predict_ckpt
 
 def CLI_parser():
     parser = ArgumentParser()
@@ -79,8 +79,8 @@ if __name__ == "__main__":
                 'val_path': os.path.join(PROJ_DIR, "data/demo/val.json"),
                 'test_path': os.path.join(PROJ_DIR, "data/demo/val.json"),
                 'train_bsz': 8,
-                'val_bsz': 32,
-                'test_bsz': 128,
+                'val_bsz': 64,
+                'test_bsz': 64,
                 'cache_dir': './cached/main',
                 'force_reload': False
             },
@@ -99,3 +99,5 @@ if __name__ == "__main__":
         train_model(config)
     elif config.mode == 'predict':
         predict_ckpt(config)
+    elif config.mode == "generate":
+        raw_generate(config)

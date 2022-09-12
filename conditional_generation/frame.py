@@ -1,6 +1,6 @@
 import os
 import sys
-from turtle import forward
+
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 # PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
 # sys.path.append(PROJ_DIR)
@@ -38,7 +38,7 @@ class Seq2seqGeneration(pl.LightningModule):
 
     def forward(self, batch):
         def _custom_forward(batch):
-            """ T5 based model do NOT use this """
+            """ for BART """
             if batch.target_ids is not None:
                 target_ids = batch.target_ids[:, :-1].contiguous()
                 lm_labels = batch.target_ids[:, 1:].clone()
@@ -56,7 +56,9 @@ class Seq2seqGeneration(pl.LightningModule):
             return output
 
         def _default_forward(batch):
-            """ 训练时模型会自动从labels参数右移得到decoder_input_ids """
+            """ 训练时模型会自动从labels参数右移得到decoder_input_ids 
+                for T5
+            """
             return self.model(batch.input_ids, attention_mask=batch.attention_mask, labels=batch.target_ids)
 
         return _default_forward(batch)
@@ -70,12 +72,18 @@ class Seq2seqGeneration(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx) :
         output = self(batch)
-        self.val_pred_ids.extend(output.logits.argmax(-1).cpu().numpy().tolist())
+        # self.val_pred_ids.extend(output.logits.argmax(-1).cpu().numpy().tolist())
+        self.log('val_loss', output.loss, prog_bar=True, sync_dist=True)                 #log the val_loss
+
+        pred_ids = self.model.generate(
+            input_ids=batch.input_ids, max_length=500, use_cache=True,
+            num_beams=1, do_sample=False                                        #  greedy search is the fastest
+            )
+        self.val_pred_ids.extend(pred_ids)
 
         # save gold ids for bleu computing
         if self.gold_corpus == [] and batch.target_ids is not None:
             self.val_target_ids.extend(batch.target_ids.cpu().numpy().tolist())
-        # self.log('val_loss', output.loss, prog_bar=True, sync_dist=True) 
 
     def _save_val_result(self):
 
@@ -92,9 +100,10 @@ class Seq2seqGeneration(pl.LightningModule):
         logdir = self.trainer.logger.log_dir 
         filename = os.path.join(logdir, f"val_epoch{self.current_epoch:02}.json")
         save_json(R, filename)
-        
+
 
     def validation_epoch_end(self, outputs):
+
         tokenizer = self.trainer.datamodule.tokenizer
         self.pred_corpus = tokenizer.batch_decode(self.val_pred_ids, skip_special_tokens = True, clean_up_tokenization_spaces = True)
 
@@ -187,8 +196,8 @@ def train_model(config):
     trainer = pl.Trainer(
         accumulate_grad_batches=config.accumulate_grads,
         logger=logger,
-        num_sanity_val_steps=0,
-        limit_train_batches=64,  # 限制训练集数量，方便快速调试
+        num_sanity_val_steps=0,    # 如果使用sanity_check  会导致val时self.gold_corpus数量出现问题
+        # limit_train_batches=64,  # 限制训练集数量，方便快速调试
         # limit_val_batches=64,  # 一般直接用全量测试数据吧, 验证函数可能会报错
         max_epochs=config.max_epochs,
         callbacks=[ckpt_callback, es],
@@ -210,3 +219,20 @@ def predict_ckpt(config):
 
     print(type(x))
 
+def raw_generate(config):
+    from tqdm import tqdm
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    dm = Seq2seqDataModule(config)
+    dm.setup(stage='test')
+    _model = get_model_by_name(config)
+    model = Seq2seqGeneration.load_from_checkpoint(config.preds.ckpt_path, config=config, model=_model).to(device)
+    
+    with torch.no_grad():
+        R = []
+        for i, batch in enumerate(tqdm(dm.test_dataloader())):
+            batch = batch.to(device)
+            pred_ids = model.model.generate(input_ids=batch.input_ids, max_length=500, use_cache=True, num_beams=1, do_sample=False)
+            R.extend(pred_ids.cpu().numpy().tolist())
+    
+    x = dm.tokenizer.batch_decode(R)
